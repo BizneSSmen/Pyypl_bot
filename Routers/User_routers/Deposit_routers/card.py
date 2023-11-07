@@ -220,7 +220,7 @@ async def _payment(callback: CallbackQuery, state: FSMContext, bot: Bot, pool: P
                                                              __COURSE__=claim.exchangeAppliedRate + claim.fee,
                                                              __AMOUNT__=claim.targetAmount,
                                                              __BID_NUMBER__=data['claimId'],
-                                                             __TIME_LEFT__=data['endDate']),
+                                                             __TIME_LEFT__=data['timeLeft']),
         reply_markup=None, message_id=data["mainMsg"], chat_id=callback.message.chat.id)
 
     await callback.message.answer(
