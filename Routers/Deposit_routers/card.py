@@ -108,28 +108,28 @@ async def _phoneNumber(message: Message, state: FSMContext, bot: Bot):
     if message.text is not None:
         claim.setTargetAmount(amount=message.text)
 
-        if claim.targetAmount >= 1500:
+    if claim.targetAmount >= 1500:
 
-            await message.delete()
-            await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
+        await message.delete()
+        await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
 
-            keyboard: ReplyKeyboardBuilder = ReplyKeyboardBuilder(
-                [[KeyboardButton(text=Buttons_text.service.ServiceButtonText.sharePhoneNumber, request_contact=True),
-                  KeyboardButton(text=Buttons_text.service.ServiceButtonText.cancel)]])
-            keyboard.adjust(1)
-            mainMsg: Message = await message.answer(reply_markup=keyboard.as_markup(resize_keyboard=True),
-                                                    text=Message_text.deposit.Deposit.phoneNumber.format(
-                                                        __BANK__=data["bank"], __CARD__=claim.cardPaidFrom,
-                                                        __AMOUNT__=claim.targetAmount))
+        keyboard: ReplyKeyboardBuilder = ReplyKeyboardBuilder(
+            [[KeyboardButton(text=Buttons_text.service.ServiceButtonText.sharePhoneNumber, request_contact=True),
+              KeyboardButton(text=Buttons_text.service.ServiceButtonText.cancel)]])
+        keyboard.adjust(1)
+        mainMsg: Message = await message.answer(reply_markup=keyboard.as_markup(resize_keyboard=True),
+                                                text=Message_text.deposit.Deposit.phoneNumber.format(
+                                                    __BANK__=data["bank"], __CARD__=claim.cardPaidFrom,
+                                                    __AMOUNT__=claim.targetAmount))
 
-            data["mainMsg"] = mainMsg.message_id
-            data['claim'] = claim
+        data["mainMsg"] = mainMsg.message_id
+        data['claim'] = claim
 
-            if "errMsg" in data:
-                await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
-                del data["errMsg"]
+        if "errMsg" in data:
+            await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
+            del data["errMsg"]
 
-            await state.set_state(CardDepositStates.phoneNumber)
+        await state.set_state(CardDepositStates.phoneNumber)
 
     else:
         await message.delete()

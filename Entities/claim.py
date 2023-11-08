@@ -31,14 +31,14 @@ class Claim:
         self.__cardAwaitingTo: str | None = None
         self.__phoneNumber: str | None = None
         self.__status: str | None = None
-        self.__targetAmount: int | None = None
-        self.__finalAmount: int | None = None
+        self.__targetAmount: int = 0
+        self.__finalAmount: int = 0
         self.__currencyA: str | None = None
         self.__currencyB: str | None = None
         self.__exchangeAppliedRate: float | None = None
-        self.__fee: int | None = None
+        self.__fee: int = 0
         self.__receiptType: str | None = None
-        self.__receiptSize: int = None
+        self.__receiptSize: int = 0
         self.__receiptBinary: str | None = None
 
     @property
