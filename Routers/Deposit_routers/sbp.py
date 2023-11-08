@@ -118,15 +118,15 @@ async def _phoneNumber(message: Message, bot: Bot, state: FSMContext, pool: Pool
 
     if claim.phoneNumber:
         data['timeLeft'] = int(time.time()) + 1200
+        claim.setExchangeAppliedRate(await GetCourse(*USD)())
+        claim.setFee(FEE)
+        claim.setFinalAmount(ceil(claim.targetAmount / claim.exchangeAppliedRate + claim.fee))
+        claim.setCreated()
         description: str = Message_text.sbp.SBP.result.format(__WALLET__=claim.currencyA, __PHONE__=claim.phoneNumber,
                                                               __AMOUNT_USD__=claim.finalAmount,
                                                               __COURSE__=claim.exchangeAppliedRate,
                                                               __AMOUNT__=claim.targetAmount,
                                                               __TIME_LEFT__=data['timeLeft'])
-        claim.setExchangeAppliedRate(await GetCourse(*USD)())
-        claim.setFee(FEE)
-        claim.setFinalAmount(ceil(claim.targetAmount / claim.exchangeAppliedRate + claim.fee))
-        claim.setCreated()
         claim.setDescription(description)
 
         bd: Database = Database(pool)
@@ -219,7 +219,8 @@ async def _cheque(message: Message, state: FSMContext, bot: Bot, pool: Pool):
     elif message.photo:
         receipt = await bot.get_file(message.photo.pop().file_id)
 
-    if claim.setReceiptType(receipt.file_path):
+    if receipt:
+        claim.setReceiptType(receipt.file_path)
         claim.setReceiptSize(receipt.file_size)
         claim.setReceiptBinary((await bot.download_file(receipt.file_path)).read())
 
