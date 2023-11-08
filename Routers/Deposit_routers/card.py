@@ -261,6 +261,7 @@ async def _cheque(message: Message, state: FSMContext, bot: Bot, pool: Pool):
         receipt = await bot.get_file(message.photo.pop().file_id)
 
     if claim.setReceiptType(receipt.file_path):
+
         claim.setReceiptSize(receipt.file_size)
         claim.setReceiptBinary((await bot.download_file(receipt.file_path)).read())
 

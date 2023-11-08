@@ -1,10 +1,15 @@
 import asyncio
 import re
+import time
 
 from aiogram import Router, F, Bot
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import KeyboardButton, Message, InlineKeyboardButton, ReplyKeyboardMarkup, CallbackQuery
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiomysql import Pool
+
+from DataBase import Database
+from Entities import Claim
 from Misc.User_text import Buttons_text, Message_text
 from aiogram.fsm.context import FSMContext
 
@@ -23,6 +28,9 @@ class CashExchangeStates(StatesGroup):
 
 @cashExchange.message(F.text == Buttons_text.main_menu.MainMenu.deriveAmount.value)
 async def _deriveCash(message: Message, state: FSMContext):
+    claim: Claim = Claim()
+    claim.setChange()
+
     keyboardButton: ReplyKeyboardBuilder = (ReplyKeyboardBuilder().
                                             add(KeyboardButton(text=Buttons_text.service.ServiceButtonText.cancel)))
     await message.answer(text=Message_text.cash_exchange.ChashExchange.keyboardChangeMsg,
@@ -34,8 +42,7 @@ async def _deriveCash(message: Message, state: FSMContext):
     keyboard.adjust(1)
     mainMsg: message = await message.answer(text=Message_text.cash_exchange.ChashExchange.phoneNumber,
                                             reply_markup=keyboard.as_markup(resize_keyboard=True))
-
-    data: dict = {"mainMsg": mainMsg.message_id}
+    data: dict[str, Claim] = {'claim': claim, "mainMsg": mainMsg.message_id}
 
     await state.set_state(CashExchangeStates.phoneNumber)
     await state.set_data(data)  # -> SET DATA
@@ -43,20 +50,17 @@ async def _deriveCash(message: Message, state: FSMContext):
 
 @cashExchange.message(CashExchangeStates.phoneNumber)
 async def _wallet(message: Message, state: FSMContext, bot: Bot):
-    phone: str | None = None
     data: dict = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
 
     await message.delete()
 
     if message.contact is not None:
-        phone = message.contact.phone_number
+        claim.setPhoneNumber(message.contact.phone_number)
     elif message.text is not None:
-        phonePattern: re.Pattern = re.compile(r"(\+\d{1,3})?\s?\(?\d{1,4}\)?[\s.-]?\d{3}[\s.-]?\d{4}")
-        phone = phonePattern.match(message.text).group() if phonePattern.match(message.text) else None
+        claim.setPhoneNumber(message.text)
 
-    if phone:
-
-        data["phoneNumber"]: str = phone
+    if claim.phoneNumber:
 
         await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
 
@@ -68,6 +72,7 @@ async def _wallet(message: Message, state: FSMContext, bot: Bot):
                                                 reply_markup=inlineKeyboard.as_markup())
 
         data["mainMsg"]: str = mainMsg.message_id
+        data['claim'] = claim
 
         if "errMsg" in data:
             await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
@@ -87,7 +92,9 @@ async def _wallet(message: Message, state: FSMContext, bot: Bot):
 @cashExchange.callback_query(F.data.split("_")[-1] == "wallet", CashExchangeStates.wallet)
 async def _amount(callback: CallbackQuery, state: FSMContext, bot: Bot):
     data: dict = await state.get_data()  # <- GET DATA
-    data["wallet"] = callback.data.split("_")[0]
+    claim: Claim = data['claim']
+    claim.setCurrencyA(callback.data.split("_")[0])
+    claim.setCurrencyB(claim.currencyA)
 
     await bot.delete_message(chat_id=callback.message.chat.id, message_id=data["mainMsg"])
 
@@ -96,23 +103,37 @@ async def _amount(callback: CallbackQuery, state: FSMContext, bot: Bot):
     mainMsg: Message = await callback.message.answer(text=Message_text.cash_exchange.ChashExchange.amount,
                                                      reply_markup=keyboard.as_markup(resize_keyboard=True))
     data["mainMsg"]: str = mainMsg.message_id
+    data['claim'] = claim
 
     await state.set_state(CashExchangeStates.amount)
     await state.set_data(data=data)  # -> SET DATA
 
 
 @cashExchange.message(CashExchangeStates.amount)
-async def _amount(message: Message, state: FSMContext, bot: Bot):
-    amount: int = 0
-    data: dict = await state.get_data()  # <- GET DATA
+async def _amount(message: Message, state: FSMContext, bot: Bot, pool: Pool):
+    data = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
 
     await message.delete()
 
     if message.text is not None:
-        amount = int(message.text) if message.text.isdigit() else 0
+        claim.setTargetAmount(message.text)
+        claim.setFinalAmount(message.text)
+        claim.setExchangeAppliedRate(1)
+        claim.setFee(0)
 
-    if amount >= 1:
-        data["amount"]: str = amount
+    if claim.finalAmount >= 1:
+        description: str = Message_text.cash_exchange.ChashExchange.result.format(__WALLET__=claim.currencyA,
+                                                                                  __PHONE__=claim.phoneNumber,
+                                                                                  __AMOUNT__=claim.finalAmount,
+                                                                                  __TIME_LEFT__=20)
+        claim.setDescription(description)
+        claim.setCreated()
+        data['timeLeft'] = int(time.time()) + 1200
+
+        bd: Database = Database(pool)
+        claimId: str = await bd.insertСlaim(claim.getAllAttr())
+        data["claimId"]: str = claimId
 
         await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
 
@@ -121,16 +142,14 @@ async def _amount(message: Message, state: FSMContext, bot: Bot):
         await message.answer(text="Спасибо!", reply_markup=keyboard.as_markup(resize_keyboard=True))
 
         mainMsg: Message = await message.answer(
-            text=Message_text.cash_exchange.ChashExchange.result.format(__WALLET__=data["wallet"],
-                                                                        __PHONE__=data["phoneNumber"],
-                                                                        __AMOUNT__=data["amount"],
-                                                                        __END__DATE__="temp"),
+            text=description,
             reply_markup=InlineKeyboardBuilder(
-                [[InlineKeyboardButton(text="Подтвердить", callback_data="accept")]]).as_markup())
+                [[InlineKeyboardButton(text="Подтвердить", callback_data="done")]]).as_markup())
 
         cancelOrder: asyncio.Task = asyncio.create_task(cancel(bot, data["mainMsg"], message.chat.id, state))
         data["cancelTask"]: asyncio.Task = cancelOrder
         data["mainMsg"] = mainMsg.message_id
+        data['claim'] = claim
 
         if "errMsg" in data:
             await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
@@ -149,15 +168,22 @@ async def _amount(message: Message, state: FSMContext, bot: Bot):
             await state.set_data(data=data)  # -> SET DATA
 
 
-@cashExchange.callback_query(F.data == "accept", CashExchangeStates.accept)
-async def _accept(callback: CallbackQuery, state: FSMContext, bot: Bot):
+@cashExchange.callback_query(F.data == "done", CashExchangeStates.accept)
+async def _accept(callback: CallbackQuery, state: FSMContext, bot: Bot, pool: Pool):
     data: dict = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
+    claim.setApproved()
+    data['claim'] = claim
+    data["cancelTask"].cancel()
+
+    db: Database = Database(pool)
+    await db.updateClaimById(data['claimId'], {'status': claim.status})
 
     await bot.edit_message_text(
-        text=Message_text.cash_exchange.ChashExchange.application.format(__WALLET__=data["wallet"],
-                                                                         __AMOUNT__=data["amount"],
-                                                                         __PHONE__=data["phoneNumber"],
-                                                                         __END__DATE__="temp"), reply_markup=None,
+        text=Message_text.cash_exchange.ChashExchange.application.format(__WALLET__=claim.currencyA,
+                                                                         __AMOUNT__=claim.targetAmount,
+                                                                         __PHONE__=claim.phoneNumber,
+                                                                         ), reply_markup=None,
         message_id=data["mainMsg"], chat_id=callback.message.chat.id)
 
     await state.clear()
@@ -169,3 +195,5 @@ async def _accept(callback: CallbackQuery, state: FSMContext, bot: Bot):
         resize_keyboard=True)
     await callback.message.answer(text=Message_text.service_text.UserMessageText.endOfLongBid,
                                   reply_markup=keyboard)
+
+    await state.clear()

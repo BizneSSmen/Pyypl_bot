@@ -19,7 +19,9 @@ async def main():
     )
     config: Config = loadConfig("config.env")
     dbConfig = config.dataBase
+
     loop = asyncio.get_event_loop()
+
     pool: Pool = await createPool(user=dbConfig.login,
                                   password=dbConfig.password,
                                   address=dbConfig.address,

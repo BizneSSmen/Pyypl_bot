@@ -24,8 +24,13 @@ async def _start(message: Message, state: FSMContext):
 
 @mainMenu.message(F.text == Buttons_text.service.ServiceButtonText.cancel)
 async def _cancel(message: Message, state: FSMContext):
-
-    await state.clear()
+    try:
+        data: dict = await state.get_data()  # <- GET DATA
+        data["cancelTask"].cancel()
+    except:
+        pass
+    finally:
+        await state.clear()
 
     keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btnTxt.value) for btnTxt in list(Buttons_text.main_menu.MainMenu)[:2]]] +
                                             [[KeyboardButton(text=list(Buttons_text.main_menu.MainMenu)[2].value)]] +
@@ -67,3 +72,10 @@ async def _derive(message: Message):
           Buttons_text.derive.Derive]])
     inlineKeyboard.adjust(1)
     await message.answer(text=Message_text.deposit.Deposit.chooseWay, reply_markup=inlineKeyboard.as_markup())
+
+
+# FAQ
+
+@mainMenu.message(F.text == Buttons_text.main_menu.MainMenu.faq.value)
+async def _faq(message: Message):
+    await message.answer(text=Message_text.service_text.UserMessageText.FAQ, disable_web_page_preview=True)

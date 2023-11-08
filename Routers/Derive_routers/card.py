@@ -1,10 +1,16 @@
+import time
 from math import ceil
 from aiogram import F, Router, Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, InlineKeyboardButton, KeyboardButton, CallbackQuery, Document, ReplyKeyboardMarkup
+from aiogram.types import Message, InlineKeyboardButton, KeyboardButton, CallbackQuery, Document, ReplyKeyboardMarkup, \
+    File
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiomysql import Pool
+
+from DataBase import Database
+from Entities import Claim
 from Misc.User_text import Buttons_text, Message_text
 from Utils import GetCourse, cancel
 from params import USD, FEE
@@ -25,6 +31,12 @@ class DeriveCardStates(StatesGroup):
 
 @deriveCard.callback_query(F.data == Buttons_text.derive.Derive.card.value)
 async def _deriveCard(callback: CallbackQuery, state: FSMContext):
+    claim: Claim = Claim()
+    claim.setCredit()
+    claim.setCurrencyA('USD')
+    claim.setCurrencyB('RUB')
+    data: dict[str, Claim] = {'claim': claim}
+
     await callback.message.delete()
 
     keyboard: ReplyKeyboardBuilder = ReplyKeyboardBuilder(
@@ -34,28 +46,25 @@ async def _deriveCard(callback: CallbackQuery, state: FSMContext):
 
     mainMsg: Message = await callback.message.answer(text=Message_text.derive.DeriveCard.phoneNumber,
                                                      reply_markup=keyboard.as_markup(resize_keyboard=True))
-    data: dict = {"mainMsg": mainMsg.message_id}
+    data["mainMsg"] = mainMsg.message_id
 
     await state.set_state(DeriveCardStates.phoneNumber)
-    await state.set_data(data)
+    await state.set_data(data)  # -> SET DATA
 
 
 @deriveCard.message(DeriveCardStates.phoneNumber)
 async def _phoneNumber(message: Message, state: FSMContext, bot: Bot):
-    phone: str | None = None
     data: dict = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
 
     await message.delete()
 
     if message.contact is not None:
-        phone = message.contact.phone_number
+        claim.setPhoneNumber(message.contact.phone_number)
     elif message.text is not None:
-        phonePattern: re.Pattern = re.compile(r"(\+\d{1,3})?\s?\(?\d{1,4}\)?[\s.-]?\d{3}[\s.-]?\d{4}")
-        phone = phonePattern.match(message.text).group() if phonePattern.match(message.text) else None
+        claim.setPhoneNumber(message.text)
 
-    if phone:
-
-        data["phoneNumber"]: str = phone
+    if claim.phoneNumber:
 
         keyboard: ReplyKeyboardBuilder = ReplyKeyboardBuilder(
             [[KeyboardButton(text=Buttons_text.service.ServiceButtonText.cancel)]])
@@ -70,6 +79,7 @@ async def _phoneNumber(message: Message, state: FSMContext, bot: Bot):
         mainMsg: Message = await message.answer(text=Message_text.derive.DeriveCard.bank,
                                                 reply_markup=inlineKeyboard.as_markup())
         data["mainMsg"]: str = mainMsg.message_id
+        data['claim'] = claim
 
         if "errMsg" in data:
             await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
@@ -88,13 +98,14 @@ async def _phoneNumber(message: Message, state: FSMContext, bot: Bot):
 
 @deriveCard.callback_query(F.data.split("_")[-1] == "bank", DeriveCardStates.bank)
 async def _cardNumber(callback: CallbackQuery, state: FSMContext):
-    data: dict = await state.get_data()
+    data: dict = await state.get_data()  # <- GET DATA
     data["bank"]: str = callback.data.split("_")[0]
+    claim: Claim = data['claim']
 
     await callback.message.delete()
 
     mainMsg: Message = await callback.message.answer(
-        text=Message_text.derive.DeriveCard.cardNumber.format(__BANK__=data['bank'], __PHONE__=data["phoneNumber"]))
+        text=Message_text.derive.DeriveCard.cardNumber.format(__BANK__=data['bank'], __PHONE__=claim.phoneNumber))
     data['mainMsg']: str = mainMsg.message_id
 
     await state.set_state(DeriveCardStates.cardNumber)
@@ -103,27 +114,23 @@ async def _cardNumber(callback: CallbackQuery, state: FSMContext):
 
 @deriveCard.message(DeriveCardStates.cardNumber)
 async def _amount(message: Message, state: FSMContext, bot: Bot):
-    cardNumber: str | None = None
     data: dict = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
 
     await message.delete()
 
     if message.text is not None:
-        cardPattern: re.Pattern = re.compile('[0-9]{16}$')
-        cardNumber = cardPattern.match(message.text).group() if cardPattern.match(message.text) else None
+        claim.setCardAwaitingTo(_str=message.text)
 
-    if cardNumber:
-
-        data["cardNumber"]: str = " ".join(re.findall('.{%s}' % 4, cardNumber))
+    if claim.setCardAwaitingTo:
 
         await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
 
         mainMsg: Message = await message.answer(text=Message_text.derive.DeriveCard.amount.format(__BANK__=data["bank"],
-                                                                                                  __CARD__=data[
-                                                                                                  "cardNumber"],
-                                                                                                  __PHONE__=data[
-                                                                                                  "phoneNumber"]))
+                                                                                                  __CARD__=claim.cardAwaitingTo,
+                                                                                                  __PHONE__=claim.phoneNumber))
         data["mainMsg"] = mainMsg.message_id
+        data['claim'] = claim
 
         if "errMsg" in data:
             await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
@@ -141,39 +148,50 @@ async def _amount(message: Message, state: FSMContext, bot: Bot):
 
 
 @deriveCard.message(DeriveCardStates.amount)
-async def _accept(message: Message, state: FSMContext, bot: Bot):
+async def _accept(message: Message, state: FSMContext, bot: Bot, pool: Pool):
+    data = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
+
     await message.delete()
 
-    data: dict = await state.get_data()  # <- GET DATA
-
     if message.text is not None:
-        data["usdCourse"]: float = await GetCourse(*USD)() - FEE
-        amount = int(message.text) if message.text.isdigit() else 0
+        claim.setExchangeAppliedRate(await GetCourse(*USD)())
+        claim.setFee(FEE)
+        claim.setTargetAmount(amount=message.text)
+        claim.setFinalAmount(claim.targetAmount * (claim.exchangeAppliedRate + claim.fee))
 
-        if 5000 <= amount * data["usdCourse"] <= 300_000:
-
-            data["amountUSD"]: str = amount
-            data["amountRUB"]: str = str(amount * data["usdCourse"])
-
-            await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
-
-            mainMsg: Message = await message.answer(
-                text=Message_text.derive.DeriveCard.result.format(__PHONE__=data["phoneNumber"],
-                                                                  __CARD__=data["cardNumber"],
-                                                                  __AMOUNT__=data["amountRUB"],
-                                                                  __AMOUNT_USD__=data["amountUSD"],
-                                                                  __COURSE__=data["usdCourse"], __BANK__=data["bank"]),
-                reply_markup=InlineKeyboardBuilder(
-                    [[InlineKeyboardButton(text="Подтвердить", callback_data="accept")]]).as_markup())
-
-            data["mainMsg"] = mainMsg.message_id
-
-            cancelOrder: asyncio.Task = asyncio.create_task(cancel(bot, data["mainMsg"], message.chat.id, state))
-            data["cancelTask"]: asyncio.Task = cancelOrder
+        if 5000 <= claim.finalAmount <= 300_000:
 
             if "errMsg" in data:
                 await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
                 del data["errMsg"]
+
+            description: str = Message_text.derive.DeriveCard.result.format(__PHONE__=claim.phoneNumber,
+                                                                            __CARD__=claim.cardAwaitingTo,
+                                                                            __AMOUNT__=claim.finalAmount,
+                                                                            __AMOUNT_USD__=claim.targetAmount,
+                                                                            __COURSE__=claim.exchangeAppliedRate,
+                                                                            __BANK__=data["bank"][:-1],
+                                                                            __TIME_LEFT__=20)
+            claim.setDescription(description)
+            claim.setCreated()
+            data['timeLeft'] = int(time.time()) + 1200
+
+            bd: Database = Database(pool)
+            claimId: str = await bd.insertСlaim(claim.getAllAttr())
+            data["claimId"]: str = claimId
+
+            await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
+
+            mainMsg: Message = await message.answer(
+                text=description,
+                reply_markup=InlineKeyboardBuilder(
+                    [[InlineKeyboardButton(text="Подтвердить", callback_data="done")]]).as_markup())
+
+            cancelOrder: asyncio.Task = asyncio.create_task(cancel(bot, data["mainMsg"], message.chat.id, state))
+            data["cancelTask"]: asyncio.Task = cancelOrder
+            data["mainMsg"] = mainMsg.message_id
+            data['claim'] = claim
 
             await state.set_state(DeriveCardStates.paid)
             await state.set_data(data=data)  # -> SET DATA
@@ -181,13 +199,13 @@ async def _accept(message: Message, state: FSMContext, bot: Bot):
 
         elif "errMsg" not in data:
             errorMessage: Message = await message.answer(
-                text=Message_text.derive.DeriveCard.amountError.format(__ERR_AMOUNT__=int(amount) * data["usdCourse"]))
+                text=Message_text.derive.DeriveCard.amountError.format(__ERR_AMOUNT__=claim.finalAmount))
             data["errMsg"]: str = errorMessage.message_id
         else:
             try:
                 await bot.edit_message_text(chat_id=message.chat.id, message_id=data["errMsg"],
                                             text=Message_text.derive.DeriveCard.amountError.format(
-                                                __ERR_AMOUNT__=int(amount) * data["usdCourse"]))
+                                                __ERR_AMOUNT__=claim.finalAmount))
             except TelegramBadRequest:
                 pass
 
@@ -205,38 +223,70 @@ async def _accept(message: Message, state: FSMContext, bot: Bot):
     await state.set_data(data=data)  # -> SET DATA
 
 
-@deriveCard.callback_query(F.data == "accept", DeriveCardStates.paid)
-async def _payment(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    data: dict = await state.get_data()
+@deriveCard.callback_query(F.data == "done", DeriveCardStates.paid)
+async def _payment(callback: CallbackQuery, state: FSMContext, bot: Bot, pool: Pool):
+    data: dict = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
+    claim.setApproved()
+    data['claim'] = claim
+    data['timeLeft'] = (data['timeLeft'] - int(time.time())) // 60
+
+    db: Database = Database(pool)
+    await db.updateClaimById(data['claimId'], {'status': claim.status})
 
     await bot.edit_message_text(reply_markup=None, message_id=data["mainMsg"], chat_id=callback.message.chat.id,
-                                text=Message_text.derive.DeriveCard.application.format(__PHONE__=data["phoneNumber"],
-                                                                                       __CARD__=data["cardNumber"],
-                                                                                       __AMOUNT__=data["amountRUB"],
-                                                                                       __AMOUNT_USD__=data["amountUSD"],
-                                                                                       __COURSE__=data["usdCourse"],
+                                text=Message_text.derive.DeriveCard.application.format(__PHONE__=claim.phoneNumber,
+                                                                                       __CARD__=claim.cardAwaitingTo,
+                                                                                       __AMOUNT__=claim.finalAmount,
+                                                                                       __AMOUNT_USD__=claim.targetAmount,
+                                                                                       __COURSE__=claim.exchangeAppliedRate,
                                                                                        __BANK__=data["bank"],
-                                                                                       __BID_NUMBER__=5))
+                                                                                       __BID_NUMBER__=data['claimId'],
+                                                                                       __TIME_LEFT__=data['timeLeft']))
 
     await callback.message.answer(text=Message_text.derive.DeriveCard.instruction, reply_markup=InlineKeyboardBuilder(
-            [[InlineKeyboardButton(text="Оплачено", callback_data="paid")]]).as_markup())
+        [[InlineKeyboardButton(text="Оплачено", callback_data="paid")]]).as_markup())
+
+    await state.set_data(data=data)  # -> SET DATA
 
 
 @deriveCard.callback_query(F.data == "paid", DeriveCardStates.paid)
-async def _paid(callback: CallbackQuery, state: FSMContext):
+async def _paid(callback: CallbackQuery, state: FSMContext, pool: Pool):
+    data: dict = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
+    claim.setInitialized()
+    data['claim'] = claim
+
+    db: Database = Database(pool)
+    await db.updateClaimById(data['claimId'], {'status': claim.status})
+
     await callback.message.delete()
     await callback.message.answer(text=Message_text.service_text.UserMessageText.cheque)
 
     await state.set_state(DeriveCardStates.cheque)
+    await state.set_data(data=data)  # -> SET DATA
 
 
 @deriveCard.message(DeriveCardStates.cheque)
-async def _cheque(message: Message, state: FSMContext, bot: Bot):
-    cheque: list | Document | None = next((_ for _ in [message.photo, message.document] if _ is not None), None)
+async def _cheque(message: Message, state: FSMContext, bot: Bot, pool: Pool):
+    receipt: File | None = None
+    data: dict = await state.get_data()  # <- GET DATA
+    claim: Claim = data['claim']
 
-    if cheque:
+    if message.document:
+        receipt = await bot.get_file(message.document.file_id)
+    elif message.photo:
+        receipt = await bot.get_file(message.photo.pop().file_id)
 
-        data: dict = await state.get_data()  # <- GET DATA
+    if receipt:
+        claim.setReceiptType(receipt.file_path)
+        claim.setReceiptSize(receipt.file_size)
+        claim.setReceiptBinary((await bot.download_file(receipt.file_path)).read())
+
+        db: Database = Database(pool)
+        await db.updateClaimById(data['claimId'], {'receipt_type': claim.receiptType,
+                                                   'receipt_size': claim.receiptSize,
+                                                   'receipt_file': claim.receiptBinary})
 
         data["cancelTask"].cancel()
 

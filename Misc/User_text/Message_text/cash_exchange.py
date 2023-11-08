@@ -17,7 +17,7 @@ class ChashExchange:
 Валюта обмена: {__WALLET__} 
 Сумма обмена: {__AMOUNT__}
 
-Истекает: {__END__DATE__} UTC <i>(через 20 минут)</i>
+Истекает через: <i>{__TIME_LEFT__}</i> минут
 '''
     application: str = \
 '''
@@ -28,5 +28,5 @@ class ChashExchange:
 Валюта обмена: {__WALLET__} 
 Сумма обмена: {__AMOUNT__}
 
-Истекает: {__END__DATE__} UTC <i>(через 2 дня)</i>
+Истекает через: <i>2</i> дня
 '''
