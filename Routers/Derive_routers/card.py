@@ -122,7 +122,7 @@ async def _amount(message: Message, state: FSMContext, bot: Bot):
     if message.text is not None:
         claim.setCardAwaitingTo(_str=message.text)
 
-    if claim.setCardAwaitingTo:
+    if claim.cardAwaitingTo:
 
         await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
 

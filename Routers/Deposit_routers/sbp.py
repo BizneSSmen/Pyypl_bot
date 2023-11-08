@@ -126,7 +126,7 @@ async def _phoneNumber(message: Message, bot: Bot, state: FSMContext, pool: Pool
                                                               __AMOUNT_USD__=claim.finalAmount,
                                                               __COURSE__=claim.exchangeAppliedRate,
                                                               __AMOUNT__=claim.targetAmount,
-                                                              __TIME_LEFT__=data['timeLeft'])
+                                                              __TIME_LEFT__=20)
         claim.setDescription(description)
 
         bd: Database = Database(pool)
