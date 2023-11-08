@@ -24,11 +24,11 @@ async def _start(message: Message, state: FSMContext):
 
 @mainMenu.message(F.text == Buttons_text.service.ServiceButtonText.cancel)
 async def _cancel(message: Message, state: FSMContext):
-    try:
-        data: dict = await state.get_data()  # <- GET DATA
-        data["cancelTask"].cancel()
-    except:
-        pass
+    # try:
+    #     data: dict = await state.get_data()  # <- GET DATA
+    #     data["cancelTask"].cancel()
+    # except:
+    #     pass
     await state.clear()
 
     keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btnTxt.value) for btnTxt in list(Buttons_text.main_menu.MainMenu)[:2]]] +
