@@ -74,25 +74,25 @@ async def _amount(message: Message, state: FSMContext, bot: Bot):
     if message.text is not None:
         claim.setTargetAmount(amount=message.text)
 
-    if claim.targetAmount >= 1500:
+        if claim.targetAmount >= 1500:
 
-        await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
+            await bot.delete_message(chat_id=message.chat.id, message_id=data["mainMsg"])
 
-        keyboard: ReplyKeyboardBuilder = ReplyKeyboardBuilder(
-            [[KeyboardButton(text=Buttons_text.service.ServiceButtonText.sharePhoneNumber, request_contact=True),
-              KeyboardButton(text=Buttons_text.service.ServiceButtonText.cancel)]])
-        keyboard.adjust(1)
-        mainMsg: Message = await message.answer(reply_markup=keyboard.as_markup(resize_keyboard=True),
-                                                text=Message_text.sbp.SBP.phoneNumber.format(
-                                                    __WALLET__=claim.currencyA, __AMOUNT__=claim.targetAmount))
+            keyboard: ReplyKeyboardBuilder = ReplyKeyboardBuilder(
+                [[KeyboardButton(text=Buttons_text.service.ServiceButtonText.sharePhoneNumber, request_contact=True),
+                  KeyboardButton(text=Buttons_text.service.ServiceButtonText.cancel)]])
+            keyboard.adjust(1)
+            mainMsg: Message = await message.answer(reply_markup=keyboard.as_markup(resize_keyboard=True),
+                                                    text=Message_text.sbp.SBP.phoneNumber.format(
+                                                        __WALLET__=claim.currencyA, __AMOUNT__=claim.targetAmount))
 
-        data["mainMsg"] = mainMsg.message_id
+            data["mainMsg"] = mainMsg.message_id
 
-        if "errMsg" in data:
-            await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
-            del data["errMsg"]
+            if "errMsg" in data:
+                await bot.delete_message(chat_id=message.chat.id, message_id=data["errMsg"])
+                del data["errMsg"]
 
-        await state.set_state(SBPDepositStates.phoneNumber)
+            await state.set_state(SBPDepositStates.phoneNumber)
 
     else:
 

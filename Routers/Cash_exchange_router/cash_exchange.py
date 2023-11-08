@@ -195,5 +195,3 @@ async def _accept(callback: CallbackQuery, state: FSMContext, bot: Bot, pool: Po
         resize_keyboard=True)
     await callback.message.answer(text=Message_text.service_text.UserMessageText.endOfLongBid,
                                   reply_markup=keyboard)
-
-    await state.clear()
