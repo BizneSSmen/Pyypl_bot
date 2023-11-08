@@ -1,3 +1,6 @@
-from .User_routers import userRouters
+from .Cash_exchange_router import cashExchangeRouters
+from .Derive_routers import deriveRouters
+from .Deposit_routers import depositRouters
+from .start_router import mainMenu
 
-routers = [*userRouters]
+routers = [*cashExchangeRouters, *deriveRouters, *depositRouters, mainMenu]

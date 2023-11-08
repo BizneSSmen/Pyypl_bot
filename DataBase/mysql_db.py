@@ -43,7 +43,7 @@ class Database:
 
     async def updateClaimById(self, claim_id: int, updates: dict):
         queries: list[str] = [f"UPDATE claims SET {field} WHERE id = %s" for field in [f'{key} = %s' for key in updates.keys()]]
-        values = list(updates.values())
+        values: list = list(updates.values())
         resultQueries = list(zip(queries, list(zip(values, [claim_id]*len(values)))))
 
         async with self.pool.acquire() as connection:
