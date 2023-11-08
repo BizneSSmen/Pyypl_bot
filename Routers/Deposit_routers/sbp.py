@@ -158,7 +158,6 @@ async def _phoneNumber(message: Message, bot: Bot, state: FSMContext, pool: Pool
 
     else:
 
-        await message.delete()
         if "errMsg" not in data:
             errorMessage: Message = await message.answer(text=Message_text.deposit.Deposit.phoneNumberError)
             data["errMsg"]: str = errorMessage.message_id
