@@ -29,8 +29,7 @@ async def _cancel(message: Message, state: FSMContext):
         data["cancelTask"].cancel()
     except:
         pass
-    finally:
-        await state.clear()
+    await state.clear()
 
     keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btnTxt.value) for btnTxt in list(Buttons_text.main_menu.MainMenu)[:2]]] +
                                             [[KeyboardButton(text=list(Buttons_text.main_menu.MainMenu)[2].value)]] +
